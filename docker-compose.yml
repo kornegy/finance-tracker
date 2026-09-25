@@ -1,0 +1,16 @@
+# Локальный PostgreSQL для разработки: docker compose up -d
+# Пароль ниже — только для локальной машины. В продакшене используйте свой.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: finance_tracker
+      POSTGRES_USER: finance
+      POSTGRES_PASSWORD: finance_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

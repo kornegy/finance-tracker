@@ -1,0 +1,10 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+node_modules/
+dist/
+.env
+.env.*
+appsettings.*.local.json
