@@ -126,7 +126,7 @@ app.Use(async (context, next) =>
     headers.XContentTypeOptions = "nosniff";
     headers["Referrer-Policy"] = "no-referrer";
     headers.ContentSecurityPolicy =
-        "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; " +
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'";
     await next();
 });
