@@ -1,5 +1,7 @@
-# Локальный PostgreSQL для разработки: docker compose up -d
-# Пароль ниже — только для локальной машины. В продакшене используйте свой.
+# Локальный запуск.
+#   Только база для разработки:   docker compose up -d postgres
+#   Всё приложение целиком:       TELEGRAM_BOT_TOKEN=... JWT_SIGNING_KEY=... docker compose --profile app up --build
+# Пароль БД ниже — только для локальной машины.
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,6 +13,18 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    depends_on:
+      - postgres
+    environment:
+      ConnectionStrings__Postgres: Host=postgres;Database=finance_tracker;Username=finance;Password=finance_dev_password
+      Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:?set JWT_SIGNING_KEY (32+ chars)}
+    ports:
+      - "8080:8080"
+    profiles: ["app"]
 
 volumes:
   pgdata:

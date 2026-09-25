@@ -30,6 +30,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             expense.Property(e => e.Amount).HasPrecision(12, 2);
             expense.Property(e => e.Category).HasConversion<string>().HasMaxLength(32);
+            // Уже существующим расходам миграция AddExpenseCurrency проставляет CZK.
+            expense.Property(e => e.Currency).HasConversion<string>().HasMaxLength(3);
             expense.Property(e => e.Note).HasMaxLength(MaxNoteLength);
 
             expense.HasOne(e => e.User)

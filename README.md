@@ -1,59 +1,92 @@
-# Finance Tracker — Telegram Mini App
+# Finance Tracker: Telegram Mini App
 
-Учёт личных расходов внутри Telegram. Бэкенд: ASP.NET Core 8 + EF Core + PostgreSQL.
+Учёт личных расходов прямо в Telegram. Главный экран — форма «Новый расход» (сумма → категория → «Сохранить»), вторая вкладка — история и статистика за месяц.
 
-## Статус
+**Как запустить в Telegram: [DEPLOY.md](DEPLOY.md).**
 
-- [x] Шаг 1 — модели, `AppDbContext`, PostgreSQL, первая миграция
-- [x] Шаг 2 — валидация Telegram `initData`, выдача и проверка JWT
-- [ ] Шаг 3 — CRUD расходов и сводка за месяц
-- [ ] Шаг 4 — тесты (xUnit, Moq, FluentAssertions)
-- [ ] Шаг 5 — фронтенд (React + TypeScript + Tailwind + `@twa-dev/sdk`)
+## Стек
+
+- **Бэкенд:** ASP.NET Core 8 (Minimal API), EF Core 8 (Code-First), PostgreSQL
+- **Безопасность:** проверка подписи Telegram `initData` (HMAC-SHA256), затем JWT
+- **Фронтенд:** React 19, TypeScript, Tailwind CSS 4, `@twa-dev/sdk`, цвета из темы Telegram
+- **Тесты:** xUnit, Moq, FluentAssertions (53 теста: авторизация, валидация, бизнес-логика, HTTP)
+- **Деплой:** один Docker-образ (API и статика фронтенда), Blueprint для Render
 
 ## Структура
 
 ```
 backend/
-  FinanceTracker.sln
-  .config/dotnet-tools.json         # локальный dotnet-ef
   src/FinanceTracker.Api/
-    Program.cs                       # DI, EF Core, JWT, CORS, rate limiting
-    Models/                          # User, Expense, ExpenseCategory
-    Data/AppDbContext.cs             # конфигурация схемы
-    Data/Migrations/                 # миграции Code-First
-    Auth/TelegramInitDataValidator.cs# проверка подписи initData (HMAC-SHA256)
-    Auth/JwtTokenService.cs          # выпуск JWT
-    Auth/AuthEndpoints.cs            # POST /api/auth/telegram, GET /api/auth/me
-docker-compose.yml                   # локальный PostgreSQL
+    Program.cs                 # DI, EF Core, JWT, CORS, rate limiting, заголовки безопасности
+    Models/                    # User, Expense, ExpenseCategory
+    Data/                      # AppDbContext, миграции, разбор postgres:// URL
+    Auth/                      # TelegramInitDataValidator, JwtTokenService, /api/auth/*
+    Expenses/                  # ExpenseService, ExpenseValidator, /api/expenses/*
+  tests/FinanceTracker.Api.Tests/
+frontend/
+  src/components/              # AuthGate, ExpenseForm, HistoryView
+  src/api.ts                   # клиент API с JWT и повторным входом
+Dockerfile                     # сборка фронтенда и бэкенда в один образ
+render.yaml                    # деплой на Render одной кнопкой
+docker-compose.yml             # PostgreSQL (и всё приложение) локально
 ```
 
-## Быстрый старт
+## API
 
-Нужны .NET 8 SDK и Docker (или свой PostgreSQL 14+).
+Всё, кроме `/health` и `/api/auth/telegram`, требует заголовок `Authorization: Bearer <jwt>`.
+
+| Метод | Путь | Что делает |
+|---|---|---|
+| POST | `/api/auth/telegram` | `{ initData }` → `{ accessToken, expiresAt, user }` |
+| GET | `/api/auth/me` | текущий пользователь |
+| GET | `/api/expenses?from=YYYY-MM-DD&to=YYYY-MM-DD` | расходы за период (по умолчанию текущий месяц) |
+| GET | `/api/expenses/summary?year=2026&month=9` | итоги за месяц по каждой валюте и категориям |
+| GET | `/api/expenses/{id}` | один расход |
+| POST | `/api/expenses` | `{ amount, currency, category, date?, note? }` → 201 |
+| PUT | `/api/expenses/{id}` | изменить |
+| DELETE | `/api/expenses/{id}` | удалить → 204 |
+
+Категории: `Food`, `Transport`, `Housing`, `Utilities`, `Health`, `Entertainment`, `Shopping`, `Education`, `Other`.
+
+Валюты: `CZK` (по умолчанию), `EUR`, `USD`, `UAH`, `RUB`. Валюта хранится у каждого расхода. Суммы в разных валютах не складываются и не конвертируются: в сводке у каждой валюты свой итог. Список валют задаётся в `Models/Currency.cs` и `frontend/src/currencies.ts`.
+
+## Безопасность
+
+- Подпись `initData` проверяется по [алгоритму Telegram](https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app) со сравнением за постоянное время. Данные старше 1 часа отклоняются.
+- JWT подписан HMAC-SHA256, срок жизни 12 часов. На фронтенде токен хранится только в памяти.
+- `UserId` всегда берётся из токена. Чужой расход для пользователя «не существует» (404).
+- Все запросы к БД идут через EF Core LINQ и параметризуются, поэтому SQL-инъекции исключены.
+- Строгая валидация: сумма > 0, не больше 2 знаков после запятой, категория и валюта только из списка (числа запрещены), дата в разумном диапазоне, заметка до 500 символов.
+- XSS: React экранирует вывод, а Content-Security-Policy запрещает сторонние и inline-скрипты.
+- На вход действует лимит 10 запросов в минуту с одного IP. Без секретов приложение не стартует.
+
+## Локальная разработка
+
+Нужны .NET 8 SDK, Node.js 22 и Docker (или свой PostgreSQL).
 
 ```bash
-# 1. База данных
-docker compose up -d
+docker compose up -d postgres
 
-# 2. Секреты (не кладите их в appsettings.json и в git)
 cd backend/src/FinanceTracker.Api
-dotnet user-secrets set "ConnectionStrings:Postgres" "Host=localhost;Port=5432;Database=finance_tracker;Username=finance;Password=finance_dev_password"
+dotnet user-secrets set "ConnectionStrings:Postgres" "Host=localhost;Database=finance_tracker;Username=finance;Password=finance_dev_password"
 dotnet user-secrets set "Telegram:BotToken" "<токен от @BotFather>"
 dotnet user-secrets set "Jwt:SigningKey" "$(openssl rand -base64 48)"
+dotnet run                      # http://localhost:5252, миграции применяются сами
 
-# 3. Запуск (в Development миграции применяются автоматически)
-dotnet run
-# -> http://localhost:5252/health
+cd frontend
+npm install
+npm run dev                     # http://localhost:5173, /api проксируется на бэкенд
 ```
 
-Без `Telegram:BotToken` или `Jwt:SigningKey` (минимум 32 символа) приложение не стартует: так ошибка конфигурации видна сразу, а не на первом запросе.
+Вне Telegram фронтенд покажет «Откройте приложение в Telegram», потому что без `initData` вход невозможен. Для проверки в Telegram нужен публичный `https://` адрес: задеплойте приложение ([DEPLOY.md](DEPLOY.md)) или используйте туннель (ngrok, cloudflared).
 
-### Продакшен
+Всё приложение в Docker: `TELEGRAM_BOT_TOKEN=... JWT_SIGNING_KEY=... docker compose --profile app up --build` → http://localhost:8080.
 
-Секреты задаются переменными окружения: `ConnectionStrings__Postgres`, `Telegram__BotToken`, `Jwt__SigningKey`, `Cors__AllowedOrigins__0=https://ваш-фронтенд`.
-Миграции применяются явно: `dotnet ef database update` или SQL-скрипт `dotnet ef migrations script --idempotent`.
+### Тесты
 
-Если API стоит за reverse proxy (nginx, Caddy), включите `UseForwardedHeaders`, иначе rate limiting будет видеть IP прокси вместо IP клиента.
+```bash
+cd backend && dotnet test
+```
 
 ### Миграции
 
@@ -61,25 +94,15 @@ dotnet run
 cd backend
 dotnet tool restore
 dotnet ef migrations add <Name> -p src/FinanceTracker.Api -o Data/Migrations
-dotnet ef database update -p src/FinanceTracker.Api
 ```
 
-## Как работает вход
+## Конфигурация
 
-1. Mini App берёт `window.Telegram.WebApp.initData` (строка, подписанная Telegram) и отправляет её как есть:
-   `POST /api/auth/telegram` с телом `{ "initData": "<строка>" }`.
-2. Бэкенд проверяет HMAC-подпись токеном бота (алгоритм из [документации Telegram](https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app)), сравнение за постоянное время, и что `auth_date` не старше `Telegram:InitDataMaxAge` (по умолчанию 1 час).
-3. Пользователь создаётся или обновляется в БД, в ответ приходит JWT (`accessToken`, `expiresAt`, `user`).
-4. Дальше все запросы идут с заголовком `Authorization: Bearer <accessToken>`.
-
-Все эндпоинты по умолчанию требуют JWT (fallback policy); открыты только `/health` и `/api/auth/telegram`. Вход ограничен 10 запросами в минуту с одного IP. `UserId` всегда берётся из токена (`User.GetUserId()`), а не из тела запроса.
-
-## Модель данных
-
-| Таблица    | Поля |
-|------------|------|
-| `users`    | `Id` (Telegram id, PK), `FirstName`, `LastName`, `Username`, `LanguageCode`, `CreatedAt`, `LastLoginAt` |
-| `expenses` | `Id` (uuid), `UserId` (FK, каскадное удаление), `Amount` numeric(12,2) > 0, `Category` (строка из enum), `Date` (date), `Note` ≤ 500, `CreatedAt`, `UpdatedAt` |
-
-Индекс `(UserId, Date)` покрывает основные запросы: история и сводка за месяц.
-Категории — фиксированный enum `ExpenseCategory`, хранится строкой, поэтому его легко расширить.
+| Переменная | Назначение |
+|---|---|
+| `ConnectionStrings__Postgres` | `Host=...;Database=...` или `postgresql://user:pass@host/db` |
+| `Telegram__BotToken` | токен бота (секрет) |
+| `Jwt__SigningKey` | ключ подписи JWT, от 32 символов (секрет) |
+| `Database__MigrateOnStartup` | применять миграции при старте (в Docker-образе `true`) |
+| `ReverseProxy__Enabled` | доверять `X-Forwarded-*` от хостинга (в Docker-образе `true`) |
+| `Cors__AllowedOrigins__0` | нужен, только если фронтенд живёт на другом домене |

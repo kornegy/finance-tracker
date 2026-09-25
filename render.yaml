@@ -1,0 +1,27 @@
+# Render Blueprint: создаёт веб-сервис (Docker) и базу PostgreSQL одним нажатием.
+# Render -> New -> Blueprint -> выбрать этот репозиторий. Подробно: DEPLOY.md.
+services:
+  - type: web
+    name: finance-tracker
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ConnectionStrings__Postgres
+        fromDatabase:
+          name: finance-tracker-db
+          property: connectionString
+      # Токен бота от @BotFather. Render спросит его при создании Blueprint.
+      - key: Telegram__BotToken
+        sync: false
+      # Случайный ключ подписи JWT, Render сгенерирует его сам.
+      - key: Jwt__SigningKey
+        generateValue: true
+
+databases:
+  - name: finance-tracker-db
+    plan: free
+    databaseName: finance_tracker
+    user: finance

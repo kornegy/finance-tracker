@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FinanceTracker.Api;
 using FinanceTracker.Api.Auth;
 using FinanceTracker.Api.Data;
+using FinanceTracker.Api.Expenses;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -24,7 +27,14 @@ builder.Services.AddOptions<JwtOptions>()
 // ---------- База данных: PostgreSQL через EF Core (Code-First) ----------
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("Connection string 'ConnectionStrings:Postgres' is not configured.");
-builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(PostgresConnectionString.Normalize(connectionString)));
+
+builder.Services.AddScoped<ExpenseService>();
+
+// Категории в JSON — строками ("Food"), а не числами. Числа запрещены, чтобы нельзя было прислать 999.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 
 // ---------- Аутентификация: initData -> JWT ----------
 builder.Services.AddSingleton(TimeProvider.System);
@@ -57,13 +67,14 @@ builder.Services.AddAuthorizationBuilder()
     .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
 // Ограничение частоты запросов на вход (по IP), чтобы эндпоинт нельзя было долбить перебором.
+var authRequestsPerMinute = builder.Configuration.GetValue("RateLimit:AuthPerMinute", 10);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy(RateLimitPolicies.Auth, http =>
         RateLimitPartition.GetFixedWindowLimiter(
             http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = authRequestsPerMinute, Window = TimeSpan.FromMinutes(1) }));
 });
 
 // CORS: разрешаем только адрес фронтенда (Cors:AllowedOrigins в конфиге).
@@ -73,22 +84,57 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 
 builder.Services.AddProblemDetails();
 
+// За reverse proxy хостинга (Render, nginx) реальный IP клиента и схема приходят в X-Forwarded-*.
+// ForwardLimit = 1 берёт только значение, добавленное ближайшим прокси, так что клиент не может подменить IP.
+var behindProxy = builder.Configuration.GetValue<bool>("ReverseProxy:Enabled");
+if (behindProxy)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.ForwardLimit = 1;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+}
+
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+if (behindProxy)
+    app.UseForwardedHeaders();
+
+// Миграции при старте: удобно для одного экземпляра приложения (наш случай).
+// Включено в Development и в Docker-образе (Database__MigrateOnStartup=true).
+if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {
-    // В разработке применяем миграции автоматически. В продакшене — явно: dotnet ef database update
-    // (или SQL-скрипт из dotnet ef migrations script), чтобы изменения схемы были под контролем.
     using var scope = app.Services.CreateScope();
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
 }
-else
+
+if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler();
     app.UseHsts();
+    app.UseHttpsRedirection();
 }
 
-app.UseHttpsRedirection();
+// Базовые заголовки безопасности. CSP запрещает чужие скрипты: даже если в заметку
+// попадёт HTML, браузер не выполнит внедрённый код (а React и так экранирует вывод).
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers.XContentTypeOptions = "nosniff";
+    headers["Referrer-Policy"] = "no-referrer";
+    headers.ContentSecurityPolicy =
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'";
+    await next();
+});
+
+// Собранный фронтенд (wwwroot) отдаётся тем же сервером: один адрес, никакого CORS в продакшене.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -96,6 +142,7 @@ app.UseRateLimiter();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 app.MapAuthEndpoints();
+app.MapExpenseEndpoints();
 
 app.Run();
 
