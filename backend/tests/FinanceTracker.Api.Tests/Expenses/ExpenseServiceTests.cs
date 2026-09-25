@@ -32,8 +32,9 @@ public class ExpenseServiceTests : IDisposable
 
     public void Dispose() => _db.Dispose();
 
-    private Task<ExpenseResponse> Add(long userId, decimal amount, ExpenseCategory category, DateOnly? date = null, string? note = null) =>
-        _service.CreateAsync(userId, new ExpenseRequest(amount, category, date, note));
+    private Task<ExpenseResponse> Add(
+        long userId, decimal amount, ExpenseCategory category, DateOnly? date = null, string? note = null, Currency currency = Currency.CZK) =>
+        _service.CreateAsync(userId, new ExpenseRequest(amount, category, date, note, currency));
 
     [Fact]
     public async Task Create_WithoutDate_UsesToday_AndNormalizesNote()
@@ -41,6 +42,7 @@ public class ExpenseServiceTests : IDisposable
         var created = await Add(Alice, 100m, ExpenseCategory.Food, note: "  обед  ");
 
         created.Date.Should().Be(Today);
+        created.Currency.Should().Be(Currency.CZK);
         created.Note.Should().Be("обед");
         created.CreatedAt.Should().Be(TestClock.Now);
         (await _db.Expenses.SingleAsync()).UserId.Should().Be(Alice);
@@ -79,10 +81,11 @@ public class ExpenseServiceTests : IDisposable
     {
         var created = await Add(Alice, 10m, ExpenseCategory.Food, Today.AddDays(-3), "old");
 
-        var updated = await _service.UpdateAsync(Alice, created.Id, new ExpenseRequest(20m, ExpenseCategory.Health, null, " "));
+        var updated = await _service.UpdateAsync(Alice, created.Id, new ExpenseRequest(20m, ExpenseCategory.Health, null, " ", Currency.EUR));
 
         updated.Should().NotBeNull();
         updated!.Amount.Should().Be(20m);
+        updated.Currency.Should().Be(Currency.EUR);
         updated.Category.Should().Be(ExpenseCategory.Health);
         updated.Date.Should().Be(Today.AddDays(-3));
         updated.Note.Should().BeNull();
@@ -109,11 +112,30 @@ public class ExpenseServiceTests : IDisposable
 
         var summary = await _service.GetMonthlySummaryAsync(Alice, 2026, 9);
 
-        summary.Total.Should().Be(450.25m);
-        summary.Count.Should().Be(3);
-        summary.Categories.Should().Equal(
+        var czk = summary.Currencies.Should().ContainSingle().Subject;
+        czk.Currency.Should().Be(Currency.CZK);
+        czk.Total.Should().Be(450.25m);
+        czk.Count.Should().Be(3);
+        czk.Categories.Should().Equal(
             new CategoryTotal(ExpenseCategory.Housing, 300m, 1),
             new CategoryTotal(ExpenseCategory.Food, 150.25m, 2));
+    }
+
+    [Fact]
+    public async Task MonthlySummary_KeepsCurrenciesSeparate_MostUsedFirst()
+    {
+        var day = new DateOnly(2026, 9, 10);
+        await Add(Alice, 20m, ExpenseCategory.Food, day, currency: Currency.EUR);
+        await Add(Alice, 100m, ExpenseCategory.Food, day, currency: Currency.CZK);
+        await Add(Alice, 200m, ExpenseCategory.Transport, day, currency: Currency.CZK);
+
+        var summary = await _service.GetMonthlySummaryAsync(Alice, 2026, 9);
+
+        summary.Currencies.Select(c => (c.Currency, c.Total, c.Count)).Should().Equal(
+            (Currency.CZK, 300m, 2),
+            (Currency.EUR, 20m, 1));
+        summary.Currencies[0].Categories.Select(c => c.Category)
+            .Should().Equal(ExpenseCategory.Transport, ExpenseCategory.Food);
     }
 
     [Fact]
@@ -121,7 +143,6 @@ public class ExpenseServiceTests : IDisposable
     {
         var summary = await _service.GetMonthlySummaryAsync(Alice, 2026, 2);
 
-        summary.Total.Should().Be(0);
-        summary.Categories.Should().BeEmpty();
+        summary.Currencies.Should().BeEmpty();
     }
 }

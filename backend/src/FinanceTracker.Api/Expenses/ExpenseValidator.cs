@@ -26,6 +26,9 @@ public static class ExpenseValidator
         if (!Enum.IsDefined(request.Category))
             errors["category"] = ["Неизвестная категория."];
 
+        if (!Enum.IsDefined(request.Currency))
+            errors["currency"] = ["Неизвестная валюта."];
+
         // +1 день: у пользователя восточнее UTC "сегодня" может наступить раньше, чем на сервере.
         if (request.Date is { } date && (date < MinDate || date > today.AddDays(1)))
             errors["date"] = ["Дата вне допустимого диапазона."];

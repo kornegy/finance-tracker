@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Expense } from "../api";
 import { CATEGORIES, CATEGORY_INFO, isCategory, type Category } from "../categories";
+import { CURRENCIES, CURRENCY_INFO, isCurrency, type Currency } from "../currencies";
 import { parseAmount, todayIso } from "../format";
 import { haptic } from "../telegram";
 
 const LAST_CATEGORY_KEY = "lastCategory";
+const LAST_CURRENCY_KEY = "lastCurrency";
 
 type Props = {
   /** Если передан — форма редактирует существующий расход. */
@@ -16,11 +18,12 @@ type Props = {
 
 /**
  * Форма расхода. Быстрый путь: ввести сумму -> (выбрать категорию) -> "Сохранить".
- * Последняя категория запоминается, поэтому для частых трат хватает суммы и одного нажатия.
+ * Последние категория и валюта запоминаются, поэтому для частых трат хватает суммы и одного нажатия.
  */
 export default function ExpenseForm({ expense, onSaved, onDelete, onCancel }: Props) {
   const [amount, setAmount] = useState(expense ? String(expense.amount).replace(".", ",") : "");
-  const [category, setCategory] = useState<Category | null>(expense?.category ?? readLastCategory());
+  const [category, setCategory] = useState<Category | null>(expense?.category ?? readStored(LAST_CATEGORY_KEY, isCategory));
+  const [currency, setCurrency] = useState<Currency>(expense?.currency ?? readStored(LAST_CURRENCY_KEY, isCurrency) ?? CURRENCIES[0]);
   const [date, setDate] = useState(expense?.date ?? todayIso());
   const [note, setNote] = useState(expense?.note ?? "");
   const [showDetails, setShowDetails] = useState(Boolean(expense));
@@ -41,9 +44,10 @@ export default function ExpenseForm({ expense, onSaved, onDelete, onCancel }: Pr
     setSaving(true);
     setError(null);
     try {
-      const input = { amount: parsedAmount, category, date, note: note.trim() || null };
+      const input = { amount: parsedAmount, currency, category, date, note: note.trim() || null };
       const saved = expense ? await api.updateExpense(expense.id, input) : await api.createExpense(input);
-      writeLastCategory(category);
+      writeStored(LAST_CATEGORY_KEY, category);
+      writeStored(LAST_CURRENCY_KEY, currency);
       haptic("success");
       if (!expense) {
         setAmount("");
@@ -75,17 +79,39 @@ export default function ExpenseForm({ expense, onSaved, onDelete, onCancel }: Pr
         <label className="text-sm text-tg-hint" htmlFor="amount">
           Сумма
         </label>
-        <input
-          id="amount"
-          ref={amountRef}
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="0"
-          value={amount}
-          maxLength={14}
-          onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ""))}
-          className="mt-1 w-full bg-transparent text-4xl font-semibold outline-none placeholder:text-tg-hint/50"
-        />
+        <div className="mt-1 flex items-center gap-3">
+          <input
+            id="amount"
+            ref={amountRef}
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0"
+            value={amount}
+            maxLength={14}
+            onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ""))}
+            className="min-w-0 flex-1 bg-transparent text-4xl font-semibold outline-none placeholder:text-tg-hint/50"
+          />
+          {/* Нативный select поверх "пилюли": на телефоне открывается системный список выбора. */}
+          <label className="relative flex shrink-0 items-center gap-1 rounded-xl bg-tg-secondary-bg px-3 py-2 text-lg font-semibold text-tg-accent">
+            {CURRENCY_INFO[currency].symbol}
+            <span className="text-xs text-tg-hint">▼</span>
+            <select
+              aria-label="Валюта"
+              value={currency}
+              onChange={(e) => {
+                haptic("select");
+                if (isCurrency(e.target.value)) setCurrency(e.target.value);
+              }}
+              className="absolute inset-0 cursor-pointer opacity-0"
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c} value={c}>
+                  {CURRENCY_INFO[c].symbol} {c}, {CURRENCY_INFO[c].name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </section>
 
       <section className="grid grid-cols-3 gap-2">
@@ -162,19 +188,19 @@ export default function ExpenseForm({ expense, onSaved, onDelete, onCancel }: Pr
   );
 }
 
-function readLastCategory(): Category | null {
+function readStored<T extends string>(key: string, isValid: (value: unknown) => value is T): T | null {
   try {
-    const value = localStorage.getItem(LAST_CATEGORY_KEY);
-    return isCategory(value) ? value : null;
+    const value = localStorage.getItem(key);
+    return isValid(value) ? value : null;
   } catch {
     return null;
   }
 }
 
-function writeLastCategory(category: Category) {
+function writeStored(key: string, value: string) {
   try {
-    localStorage.setItem(LAST_CATEGORY_KEY, category);
+    localStorage.setItem(key, value);
   } catch {
-    // Не критично: просто не запомним категорию.
+    // Не критично: просто не запомним выбор.
   }
 }

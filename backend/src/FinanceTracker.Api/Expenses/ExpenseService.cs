@@ -21,7 +21,7 @@ public class ExpenseService(AppDbContext db, TimeProvider timeProvider)
             .Where(e => e.UserId == userId && e.Date >= from && e.Date <= to)
             .OrderByDescending(e => e.Date).ThenByDescending(e => e.CreatedAt)
             .Take(MaxListSize)
-            .Select(e => new ExpenseResponse(e.Id, e.Amount, e.Category, e.Date, e.Note, e.CreatedAt))
+            .Select(e => new ExpenseResponse(e.Id, e.Amount, e.Currency, e.Category, e.Date, e.Note, e.CreatedAt))
             .ToListAsync(ct);
 
     public async Task<ExpenseResponse?> GetAsync(long userId, Guid id, CancellationToken ct = default)
@@ -38,6 +38,7 @@ public class ExpenseService(AppDbContext db, TimeProvider timeProvider)
             Id = Guid.NewGuid(),
             UserId = userId,
             Amount = request.Amount,
+            Currency = request.Currency,
             Category = request.Category,
             Date = request.Date ?? Today,
             Note = ExpenseValidator.NormalizeNote(request.Note),
@@ -57,6 +58,7 @@ public class ExpenseService(AppDbContext db, TimeProvider timeProvider)
             return null;
 
         expense.Amount = request.Amount;
+        expense.Currency = request.Currency;
         expense.Category = request.Category;
         expense.Date = request.Date ?? expense.Date;
         expense.Note = ExpenseValidator.NormalizeNote(request.Note);
@@ -77,7 +79,10 @@ public class ExpenseService(AppDbContext db, TimeProvider timeProvider)
         return true;
     }
 
-    /// <summary>Итоги за месяц по категориям, от самой затратной к самой маленькой.</summary>
+    /// <summary>
+    /// Итоги за месяц отдельно по каждой валюте, внутри — по категориям от самой затратной.
+    /// Валюты идут от самой частой, так что основная валюта пользователя первая.
+    /// </summary>
     public async Task<MonthlySummary> GetMonthlySummaryAsync(long userId, int year, int month, CancellationToken ct = default)
     {
         var from = new DateOnly(year, month, 1);
@@ -85,11 +90,22 @@ public class ExpenseService(AppDbContext db, TimeProvider timeProvider)
 
         var rows = await db.Expenses.AsNoTracking()
             .Where(e => e.UserId == userId && e.Date >= from && e.Date <= to)
-            .GroupBy(e => e.Category)
-            .Select(g => new CategoryTotal(g.Key, g.Sum(e => e.Amount), g.Count()))
+            .GroupBy(e => new { e.Currency, e.Category })
+            .Select(g => new { g.Key.Currency, g.Key.Category, Total = g.Sum(e => e.Amount), Count = g.Count() })
             .ToListAsync(ct);
 
-        var categories = rows.OrderByDescending(c => c.Total).ThenBy(c => c.Category).ToList();
-        return new MonthlySummary(year, month, categories.Sum(c => c.Total), categories.Sum(c => c.Count), categories);
+        var currencies = rows
+            .GroupBy(r => r.Currency)
+            .Select(g => new CurrencyTotal(
+                g.Key,
+                g.Sum(r => r.Total),
+                g.Sum(r => r.Count),
+                g.Select(r => new CategoryTotal(r.Category, r.Total, r.Count))
+                    .OrderByDescending(c => c.Total).ThenBy(c => c.Category)
+                    .ToList()))
+            .OrderByDescending(c => c.Count).ThenBy(c => c.Currency)
+            .ToList();
+
+        return new MonthlySummary(year, month, currencies);
     }
 }

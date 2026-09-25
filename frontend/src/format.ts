@@ -1,13 +1,15 @@
-// Код валюты ISO 4217 (например RUB, CZK, EUR). Задаётся при сборке: VITE_CURRENCY=CZK.
-// Если не задан, суммы показываются без знака валюты.
-const CURRENCY = import.meta.env.VITE_CURRENCY as string | undefined;
+import type { Currency } from "./currencies";
 
-const moneyFormat = new Intl.NumberFormat("ru-RU", {
-  maximumFractionDigits: 2,
-  ...(CURRENCY ? { style: "currency", currency: CURRENCY } : {}),
-});
-
-export const formatMoney = (value: number) => moneyFormat.format(value);
+/** "4 000 Kč", "12,50 €": копейки показываем, только если они есть. */
+export function formatMoney(value: number, currency: Currency): string {
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency,
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 
 /** Сегодняшняя дата в часовом поясе пользователя, в формате YYYY-MM-DD. */
 export function todayIso(): string {

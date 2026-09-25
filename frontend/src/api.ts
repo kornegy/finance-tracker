@@ -1,9 +1,11 @@
 import WebApp from "./webapp";
 import type { Category } from "./categories";
+import type { Currency } from "./currencies";
 
 export type Expense = {
   id: string;
   amount: number;
+  currency: Currency;
   category: Category;
   date: string; // YYYY-MM-DD
   note: string | null;
@@ -12,17 +14,24 @@ export type Expense = {
 
 export type ExpenseInput = {
   amount: number;
+  currency: Currency;
   category: Category;
   date: string;
   note: string | null;
 };
 
-export type MonthlySummary = {
-  year: number;
-  month: number;
+export type CurrencyTotal = {
+  currency: Currency;
   total: number;
   count: number;
   categories: { category: Category; total: number; count: number }[];
+};
+
+/** Итоги за месяц отдельно по каждой валюте (без конвертации), самая частая валюта первая. */
+export type MonthlySummary = {
+  year: number;
+  month: number;
+  currencies: CurrencyTotal[];
 };
 
 export type CurrentUser = { id: number; firstName: string; lastName: string | null; username: string | null };

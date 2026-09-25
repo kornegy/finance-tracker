@@ -40,13 +40,15 @@ docker-compose.yml             # PostgreSQL (и всё приложение) л�
 | POST | `/api/auth/telegram` | `{ initData }` → `{ accessToken, expiresAt, user }` |
 | GET | `/api/auth/me` | текущий пользователь |
 | GET | `/api/expenses?from=YYYY-MM-DD&to=YYYY-MM-DD` | расходы за период (по умолчанию текущий месяц) |
-| GET | `/api/expenses/summary?year=2026&month=9` | итог за месяц по категориям |
+| GET | `/api/expenses/summary?year=2026&month=9` | итоги за месяц по каждой валюте и категориям |
 | GET | `/api/expenses/{id}` | один расход |
-| POST | `/api/expenses` | `{ amount, category, date?, note? }` → 201 |
+| POST | `/api/expenses` | `{ amount, currency, category, date?, note? }` → 201 |
 | PUT | `/api/expenses/{id}` | изменить |
 | DELETE | `/api/expenses/{id}` | удалить → 204 |
 
 Категории: `Food`, `Transport`, `Housing`, `Utilities`, `Health`, `Entertainment`, `Shopping`, `Education`, `Other`.
+
+Валюты: `CZK` (по умолчанию), `EUR`, `USD`, `UAH`, `RUB`. Валюта хранится у каждого расхода. Суммы в разных валютах не складываются и не конвертируются: в сводке у каждой валюты свой итог. Список валют задаётся в `Models/Currency.cs` и `frontend/src/currencies.ts`.
 
 ## Безопасность
 
@@ -54,7 +56,7 @@ docker-compose.yml             # PostgreSQL (и всё приложение) л�
 - JWT подписан HMAC-SHA256, срок жизни 12 часов. На фронтенде токен хранится только в памяти.
 - `UserId` всегда берётся из токена. Чужой расход для пользователя «не существует» (404).
 - Все запросы к БД идут через EF Core LINQ и параметризуются, поэтому SQL-инъекции исключены.
-- Строгая валидация: сумма > 0, не больше 2 знаков после запятой, категория только из списка (числа запрещены), дата в разумном диапазоне, заметка до 500 символов.
+- Строгая валидация: сумма > 0, не больше 2 знаков после запятой, категория и валюта только из списка (числа запрещены), дата в разумном диапазоне, заметка до 500 символов.
 - XSS: React экранирует вывод, а Content-Security-Policy запрещает сторонние и inline-скрипты.
 - На вход действует лимит 10 запросов в минуту с одного IP. Без секретов приложение не стартует.
 
@@ -104,4 +106,3 @@ dotnet ef migrations add <Name> -p src/FinanceTracker.Api -o Data/Migrations
 | `Database__MigrateOnStartup` | применять миграции при старте (в Docker-образе `true`) |
 | `ReverseProxy__Enabled` | доверять `X-Forwarded-*` от хостинга (в Docker-образе `true`) |
 | `Cors__AllowedOrigins__0` | нужен, только если фронтенд живёт на другом домене |
-| `VITE_CURRENCY` | код валюты для отображения (при сборке фронтенда) |

@@ -43,6 +43,14 @@ public class ExpenseValidatorTests
         ExpenseValidator.Validate(request, Today).Should().ContainKey("category");
     }
 
+    [Fact]
+    public void Validate_UndefinedCurrency_ReturnsCurrencyError()
+    {
+        var request = Valid() with { Currency = (Currency)999 };
+
+        ExpenseValidator.Validate(request, Today).Should().ContainKey("currency");
+    }
+
     [Theory]
     [InlineData(1999, 12, 31)]
     [InlineData(2026, 9, 17)]

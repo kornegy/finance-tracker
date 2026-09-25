@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FinanceTracker.Api.Auth;
 using FinanceTracker.Api.Expenses;
+using FinanceTracker.Api.Models;
 using FinanceTracker.Api.Tests.TestSupport;
 using FluentAssertions;
 
@@ -55,16 +56,17 @@ public class ApiTests : IClassFixture<ApiFactory>
         var client = await LoginAs(1001);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        var create = await client.PostAsJsonAsync("/api/expenses", new { amount = 120.5m, category = "Food", note = "обед" });
+        var create = await client.PostAsJsonAsync("/api/expenses", new { amount = 120.5m, category = "Food", note = "обед", currency = "EUR" });
         create.StatusCode.Should().Be(HttpStatusCode.Created);
         var created = (await create.Content.ReadFromJsonAsync<ExpenseResponse>(Json.Options))!;
         created.Date.Should().Be(today);
+        created.Currency.Should().Be(Currency.EUR);
 
         var list = await client.GetFromJsonAsync<List<ExpenseResponse>>("/api/expenses", Json.Options);
         list.Should().ContainSingle(e => e.Id == created.Id);
 
         var summary = await client.GetFromJsonAsync<MonthlySummary>("/api/expenses/summary", Json.Options);
-        summary!.Total.Should().Be(120.5m);
+        summary!.Currencies.Should().ContainSingle(c => c.Currency == Currency.EUR && c.Total == 120.5m);
 
         var update = await client.PutAsJsonAsync($"/api/expenses/{created.Id}", new { amount = 99m, category = "Transport" });
         update.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -91,6 +93,7 @@ public class ApiTests : IClassFixture<ApiFactory>
     [InlineData("""{ "amount": -5, "category": "Food" }""")]
     [InlineData("""{ "amount": 5, "category": "Casino" }""")]
     [InlineData("""{ "amount": 5, "category": 999 }""")]
+    [InlineData("""{ "amount": 5, "category": "Food", "currency": "BTC" }""")]
     [InlineData("""{ "amount": 5, "category": "Food", "date": "1990-01-01" }""")]
     [InlineData("""not json""")]
     public async Task CreateExpense_WithInvalidInput_Returns400(string body)

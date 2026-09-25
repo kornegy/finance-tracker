@@ -10,6 +10,8 @@ public class Expense
     /// <summary>Сумма расхода, всегда положительная. Хранится как numeric(12,2).</summary>
     public decimal Amount { get; set; }
 
+    public Currency Currency { get; set; }
+
     public ExpenseCategory Category { get; set; }
 
     /// <summary>Календарный день расхода (без времени и часового пояса).</summary>

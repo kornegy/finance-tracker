@@ -6,9 +6,6 @@ WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-# Код валюты для отображения сумм (RUB, CZK, EUR...). Пусто — без знака валюты.
-ARG VITE_CURRENCY=
-ENV VITE_CURRENCY=$VITE_CURRENCY
 RUN npm run build
 
 # ---------- 2. Бэкенд ----------

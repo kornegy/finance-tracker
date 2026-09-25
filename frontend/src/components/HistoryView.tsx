@@ -104,21 +104,22 @@ export default function HistoryView() {
 
       {error && <p className="text-center text-sm text-tg-destructive">{error}</p>}
 
-      {summary && (
-        <section className="rounded-2xl bg-tg-section-bg p-4">
+      {/* Отдельная карточка на каждую валюту: суммы в разных валютах не складываем. */}
+      {summary?.currencies.map((cur) => (
+        <section key={cur.currency} className="rounded-2xl bg-tg-section-bg p-4">
           <p className="text-sm text-tg-hint">Потрачено за месяц</p>
-          <p className="mt-1 text-3xl font-semibold">{formatMoney(summary.total)}</p>
+          <p className="mt-1 text-3xl font-semibold">{formatMoney(cur.total, cur.currency)}</p>
 
           <ul className="mt-4 flex flex-col gap-3">
-            {summary.categories.map((c) => {
-              const share = summary.total > 0 ? (c.total / summary.total) * 100 : 0;
+            {cur.categories.map((c) => {
+              const share = cur.total > 0 ? (c.total / cur.total) * 100 : 0;
               return (
                 <li key={c.category}>
                   <div className="flex justify-between text-sm">
                     <span>
                       {CATEGORY_INFO[c.category].emoji} {CATEGORY_INFO[c.category].label}
                     </span>
-                    <span className="font-medium">{formatMoney(c.total)}</span>
+                    <span className="font-medium">{formatMoney(c.total, cur.currency)}</span>
                   </div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-tg-secondary-bg">
                     <div className="h-full rounded-full bg-tg-button" style={{ width: `${Math.max(share, 2)}%` }} />
@@ -128,7 +129,7 @@ export default function HistoryView() {
             })}
           </ul>
         </section>
-      )}
+      ))}
 
       {loading && !summary && <p className="py-8 text-center text-tg-hint">Загрузка…</p>}
 
@@ -148,7 +149,7 @@ export default function HistoryView() {
                     <span className="block">{CATEGORY_INFO[e.category].label}</span>
                     {e.note && <span className="block truncate text-sm text-tg-hint">{e.note}</span>}
                   </span>
-                  <span className="font-medium">{formatMoney(e.amount)}</span>
+                  <span className="font-medium">{formatMoney(e.amount, e.currency)}</span>
                 </button>
               </li>
             ))}
